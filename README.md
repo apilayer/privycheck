@@ -1,36 +1,75 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# PrivyCheck
 
-## Getting Started
+An OSINT workbench for publicly available information. Drop in a photo and it
+reads the metadata the file is carrying — often the exact coordinates where it
+was taken, the moment, and the camera's serial number — turns those coordinates
+into a street address, and finds where else on the web the image has been
+published.
 
-First, run the development server:
+The uncomfortable part is not that any single field is secret. It is how much
+can be assembled from things that were already public.
+
+Built with **Zenserp**, **ipstack** and **Positionstack**, all
+[APILayer](https://apilayer.com/) products.
+
+## What it does
+
+| Tab | What you give it | What comes back | APIs |
+| --- | --- | --- | --- |
+| **Image** | A photo, or an image URL | EXIF metadata, the address its GPS resolves to, and every public page the image appears on | Zenserp · Positionstack |
+| **IP address** | An IPv4/IPv6 address | Location, network, ASN, and VPN / proxy / Tor / datacenter risk signals | ipstack · Positionstack |
+| **Name** | A person or company | What the press has published about them | Zenserp |
+| **Address** | A property listing address | Coordinates and a normalised address record | Positionstack |
+
+### The chain that matters
+
+The Image tab is the point of the tool. One upload runs:
+
+1. **EXIF extraction** — GPS, timestamp, camera make/model/lens, and serial number.
+2. **Reverse geocoding** — those raw coordinates become a street address via Positionstack.
+3. **Reverse image search** — Zenserp finds where else that image is published.
+4. **Exposure score** — how much all of it together gives away, out of 100.
+
+Every point of the exposure score is attributed to a named finding with the
+evidence behind it, so the verdict can be argued with rather than taken on
+faith. A device serial number scores highest after location: it is a stable
+identifier that links every photo from the same camera, across accounts.
+
+## Running it
 
 ```bash
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Create `.env.local` from `.env.example`:
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+```bash
+ZENSERP_API_KEY=        # https://app.zenserp.com/register
+IPSTACK_ACCESS_KEY=     # https://ipstack.com
+POSITIONSTACK_API_KEY=  # https://positionstack.com
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+# Optional. Only needed to reverse-image-search *uploads* from a dev machine —
+# the URL a search engine should fetch the upload from, e.g. an ngrok tunnel.
+PUBLIC_ORIGIN=
+```
 
-## Learn More
+Any missing or exhausted key degrades gracefully: the affected panel shows the
+API's own message and the rest of the case file still renders. Every result
+carries an expandable list of the calls behind it, with keys masked.
 
-To learn more about Next.js, take a look at the following resources:
+## Notes on the APIs
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+- **Reverse image search works for uploads too.** Zenserp fetches the image
+  itself, so an upload is parked in a short-lived in-memory store and served
+  from `/api/image/blob/<id>` for the length of one search: unguessable id, ten
+  minute expiry, `noindex`, never written to disk. This needs the app to be
+  reachable from the internet — on `localhost` the panel says so instead of
+  sending an unreachable URL. Set `PUBLIC_ORIGIN` to a tunnel URL to test it
+  locally.
+- **ipstack's security module is not on every plan.** Without it, proxy, Tor and
+  threat fields are unavailable; the datacenter signal falls back to matching the
+  ISP name, and the UI labels the verdict as heuristic.
+- **Nothing private is queried.** PrivyCheck reads a file you supply and calls
+  public search and geolocation APIs. No breach data, no private records,
+  nothing behind a login.
